@@ -25,7 +25,7 @@ CONFIG_FILE   = os.path.join(HOME, ".vibecoder_config.json")
 AVR_BAUDS     = [57600, 115200, 38400, 19200, 9600]
 
 # ── Online board database ─────────────────────────────────────────────────────
-BOARDS_DB_URL  = "https://raw.githubusercontent.com/orfeastops/VibeCoderArduino-ai/main/boards.json"
+BOARDS_DB_URL  = "https://raw.githubusercontent.com/YOUR_USERNAME/vibecoder/main/boards.json"
 BOARDS_DB_FILE = os.path.join(HOME, ".vibecoder_boards.json")
 BOARDS_DB_TTL  = 86400  # Re-download every 24 hours
 
@@ -1269,6 +1269,70 @@ def parse_wiring(text: str) -> list[dict]:
                              "board_pin":p[2],"notes":p[3] if len(p)>3 else ""})
     return rows
 
+# ── Live-reload web server for wiring diagram ────────────────────────────────
+_diagram_server = None
+_diagram_port   = 7890
+
+def _start_diagram_server():
+    """Start a tiny HTTP server that serves the wiring diagram with live reload."""
+    global _diagram_server
+    if _diagram_server:
+        return  # Already running
+
+    import http.server, threading, socketserver
+
+    class _Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/" or self.path == "/index.html":
+                self.path = "/" + os.path.basename(DIAGRAM_FILE)
+            # Inject live-reload script into HTML responses
+            if self.path.endswith(".html"):
+                try:
+                    with open(DIAGRAM_FILE, "rb") as f:
+                        content = f.read()
+                    # Inject auto-refresh every 2 seconds
+                    inject = b"""<script>
+                        let lastMod = null;
+                        setInterval(async () => {
+                            const r = await fetch('/ping?' + Date.now());
+                            const mod = r.headers.get('X-Last-Modified');
+                            if (lastMod && mod !== lastMod) location.reload();
+                            lastMod = mod;
+                        }, 2000);
+                    </script>"""
+                    content = content.replace(b"</body>", inject + b"</body>")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                except Exception:
+                    super().do_GET()
+            elif self.path.startswith("/ping"):
+                # Return last-modified time for change detection
+                try:
+                    mtime = str(os.path.getmtime(DIAGRAM_FILE))
+                except Exception:
+                    mtime = "0"
+                self.send_response(200)
+                self.send_header("X-Last-Modified", mtime)
+                self.end_headers()
+            else:
+                super().do_GET()
+
+        def log_message(self, *args): pass  # Silence server logs
+
+    os.chdir(os.path.dirname(DIAGRAM_FILE) or HOME)
+    try:
+        server = socketserver.TCPServer(("127.0.0.1", _diagram_port), _Handler)
+        server.allow_reuse_address = True
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        _diagram_server = server
+    except OSError:
+        pass  # Port already in use — server already running
+
+
 def generate_diagram(board: dict, rows: list[dict], task: str):
     colors = ["#00ff88","#ff6b6b","#ffd93d","#6bcbff","#c084fc","#fb923c","#34d399"]
     trs = ""
@@ -1281,6 +1345,7 @@ def generate_diagram(board: dict, rows: list[dict], task: str):
                 f'<td class="nt">{r["notes"]}</td></tr>')
     warn = ('<div class="wb">⚠️ <span>3.3V logic only — do NOT connect 5V signals to GPIO</span></div>'
             if any(x in board["fqbn"] for x in ("esp","rp2040","samd","sam")) else "")
+
     html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <title>Wiring — {board['name']}</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
@@ -1315,10 +1380,25 @@ footer{{margin-top:40px;text-align:center;color:#64748b;font-size:12px;font-fami
 <tbody>{trs}</tbody></table></div>{warn}
 <footer>VibeCoder v6.1 · {board['name']} · {time.strftime('%Y-%m-%d %H:%M')}</footer>
 </div></body></html>"""
-    with open(DIAGRAM_FILE,"w") as f: f.write(html)
-    print(f"📊 Wiring diagram → {DIAGRAM_FILE}")
-    try: webbrowser.open(f"file://{os.path.abspath(DIAGRAM_FILE)}")
-    except Exception: pass
+
+    with open(DIAGRAM_FILE, "w") as f:
+        f.write(html)
+
+    # Start live-reload server on first diagram
+    _start_diagram_server()
+    url = f"http://127.0.0.1:{_diagram_port}/"
+
+    # Open browser only once — subsequent deploys auto-reload the open tab
+    if not getattr(generate_diagram, "_opened", False):
+        try:
+            webbrowser.open(url)
+            generate_diagram._opened = True
+            print(f"   📊 Wiring diagram → {url}  (auto-updates on redeploy)")
+        except Exception:
+            print(f"   📊 Open in browser: {url}")
+    else:
+        print(f"   📊 Wiring diagram updated (live reload)")
+
 
 
 
