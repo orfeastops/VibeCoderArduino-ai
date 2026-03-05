@@ -25,7 +25,7 @@ CONFIG_FILE   = os.path.join(HOME, ".vibecoder_config.json")
 AVR_BAUDS     = [57600, 115200, 38400, 19200, 9600]
 
 # ── Online board database ─────────────────────────────────────────────────────
-BOARDS_DB_URL  = "https://raw.githubusercontent.com/YOUR_USERNAME/vibecoder/main/boards.json"
+BOARDS_DB_URL = "https://raw.githubusercontent.com/orfeastops/VibeCoderArduino-ai/main/boards.json"
 BOARDS_DB_FILE = os.path.join(HOME, ".vibecoder_boards.json")
 BOARDS_DB_TTL  = 86400  # Re-download every 24 hours
 

@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "board_manager_urls": {
+      "esp32": "https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json",
+      "esp8266": "https://arduino.esp8266.com/stable/package_esp8266com_index.json"
+    }
+  },
+  "usb_fingerprints": [
+    {"vid":"1a86","pid":"7523","chip":"ch340","fqbn":"arduino:avr:uno", "name":"Arduino Uno (CH340)", "upload_speed":115200, "upload_method":"avrdude"},
+    {"vid":"1a86","pid":"7523","chip":"ch340","fqbn":"arduino:avr:nano", "name":"Arduino Nano (CH340)", "upload_speed":57600, "upload_method":"avrdude"},
+    {"vid":"2341","pid":"0043","chip":"atmel", "fqbn":"arduino:avr:uno", "name":"Arduino Uno R3 Original", "upload_speed":115200, "upload_method":"avrdude"},
+    {"vid":"10c4","pid":"ea60","chip":"cp2102","fqbn":"esp32:esp32:esp32", "name":"ESP32 DevKit", "upload_speed":921600, "upload_method":"esptool"}
+  ],
+  "pin_rules": {
+    "arduino:avr:uno": {
+      "reserved": {"0":["Serial RX","D2"],"1":["Serial TX","D3"]},
+      "safe": ["D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13"],
+      "analog": ["A0","A1","A2","A3","A4","A5"]
+    }
+  },
+  "manual_selection_boards": [
+    {"fqbn":"arduino:avr:uno", "name":"Arduino Uno", "upload_speed":115200, "upload_method":"avrdude"},
+    {"fqbn":"arduino:avr:nano", "name":"Arduino Nano", "upload_speed":57600, "upload_method":"avrdude"},
+    {"fqbn":"esp32:esp32:esp32", "name":"ESP32 DevKit", "upload_speed":921600, "upload_method":"esptool"}
+  ]
+}
