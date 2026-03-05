@@ -25,7 +25,7 @@ CONFIG_FILE   = os.path.join(HOME, ".vibecoder_config.json")
 AVR_BAUDS     = [57600, 115200, 38400, 19200, 9600]
 
 # ── Online board database ─────────────────────────────────────────────────────
-BOARDS_DB_URL = "https://raw.githubusercontent.com/orfeastops/VibeCoderArduino-ai/main/boards.json"
+BOARDS_DB_URL  = "https://raw.githubusercontent.com/orfeastops/VibeCoderArduino-ai/main/boards.json"
 BOARDS_DB_FILE = os.path.join(HOME, ".vibecoder_boards.json")
 BOARDS_DB_TTL  = 86400  # Re-download every 24 hours
 
@@ -285,7 +285,7 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
             resp   = requests.post(url,
                 headers={"x-api-key":key,"anthropic-version":"2023-06-01",
                          "content-type":"application/json"},
-                json={"model":model,"max_tokens":2048,"system":system,"messages":msgs},
+                json={"model":model,"max_tokens":2048,"temperature":0.2,"system":system,"messages":msgs},
                 timeout=timeout)
             resp.raise_for_status()
             return resp.json()["content"][0]["text"]
@@ -303,7 +303,8 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
                 headers["HTTP-Referer"] = "https://github.com/vibecoder"
                 headers["X-Title"]      = "VibeCoder"
             resp = requests.post(url, headers=headers,
-                json={"model":model,"messages":messages,"max_tokens":2048},
+                json={"model":model,"messages":messages,
+                      "max_tokens":2048,"temperature":0.2},
                 timeout=timeout)
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
@@ -1346,6 +1347,54 @@ def _ensure_deps():
         subprocess.run([sys.executable,"-m","pip","install","-q"] + flags + missing)
         print("   ✅ Done. Restart if you see import errors.")
 
+
+def ensure_arduino_cli():
+    """Check and auto-install arduino-cli if missing."""
+    try:
+        subprocess.run(["arduino-cli", "version"], capture_output=True, check=True)
+        return  # Already installed
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    print("\n   arduino-cli not found. Auto-installing...")
+    try:
+        if IS_WINDOWS:
+            cmd = (
+                "iwr -useb https://raw.githubusercontent.com/arduino/arduino-cli/"
+                "master/install.ps1 | iex"
+            )
+            subprocess.run(["powershell", "-Command", cmd], check=True)
+            # Add to PATH
+            local_bin = os.path.join(os.environ.get("LOCALAPPDATA",""), "Programs")
+            os.environ["PATH"] += os.pathsep + local_bin
+        else:
+            cmd = "curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh"
+            subprocess.run(["sh", "-c", cmd], check=True)
+            # Add local bin to PATH for this session
+            for candidate in [
+                os.path.join(HOME, "bin"),
+                os.path.join(os.getcwd(), "bin"),
+                "/usr/local/bin",
+            ]:
+                if os.path.exists(os.path.join(candidate, "arduino-cli")):
+                    os.environ["PATH"] += os.pathsep + candidate
+                    break
+
+        # Verify install succeeded
+        r = subprocess.run(["arduino-cli", "version"], capture_output=True, text=True)
+        if r.returncode == 0:
+            print(f"   ✅ arduino-cli installed: {r.stdout.strip()}")
+            # Initialize config
+            subprocess.run(["arduino-cli", "config", "init"], capture_output=True)
+        else:
+            raise RuntimeError("arduino-cli not found after install")
+
+    except Exception as e:
+        print(f"   ❌ Auto-install failed: {e}")
+        print("   Please install manually: https://arduino.github.io/arduino-cli/")
+        print("   Then restart VibeCoder.")
+        sys.exit(1)
+
 def main():
     print("=" * 60)
     print("  VibeCoder v6.1 - Universal AI Hardware Agent")
@@ -1353,6 +1402,7 @@ def main():
     print("=" * 60)
 
     _ensure_deps()
+    ensure_arduino_cli()
     load_db()
 
     global AI_CFG
@@ -1434,4 +1484,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Auto-install arduino-cli if missing
+    ensure_arduino_cli()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n   Goodbye! 👋")
+        sys.exit(0)
