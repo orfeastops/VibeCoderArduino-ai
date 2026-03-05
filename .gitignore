@@ -8,3 +8,7 @@ vibe_sketch/build/
 *.elf
 *.map
 __pycache__/
+vibe_sketch/
+.vibecoder_*
+__pycache__/
+*.pyc
