@@ -1,0 +1,10 @@
+vibe_sketch/build/
+*.bin
+*.elf
+*.map
+__pycache__/
+vibe_sketch/build/
+*.bin
+*.elf
+*.map
+__pycache__/
