@@ -25,7 +25,7 @@ CONFIG_FILE   = os.path.join(HOME, ".vibecoder_config.json")
 AVR_BAUDS     = [57600, 115200, 38400, 19200, 9600]
 
 # ── Online board database ─────────────────────────────────────────────────────
-BOARDS_DB_URL  = "https://raw.githubusercontent.com/orfeastops/VibeCoderArduino-ai/main/boards.json"
+BOARDS_DB_URL  = "https://raw.githubusercontent.com/YOUR_USERNAME/vibecoder/main/boards.json"
 BOARDS_DB_FILE = os.path.join(HOME, ".vibecoder_boards.json")
 BOARDS_DB_TTL  = 86400  # Re-download every 24 hours
 
@@ -174,7 +174,8 @@ def setup_ai_backend(force: bool = False) -> dict:
     print("\n" + "="*60)
     print("  VibeCoder - AI Backend Setup")
     print("="*60)
-    print("\nChoose your AI backend:\n")
+    print("\nChoose your AI backend:")
+    print("(Recommended: Groq — free, fast, no credit card needed)\n")
     backends = list(AI_BACKENDS.items())
     for i, (key, info) in enumerate(backends, 1):
         free_tag = "FREE" if info["free"] else "paid"
@@ -243,10 +244,9 @@ def setup_ai_backend(force: bool = False) -> dict:
         if key:
             cfg["api_key"] = key
         elif backend_key != "ollama":
-            print("  No key entered - falling back to Ollama.")
-            cfg.update({"backend":"ollama","model":AI_BACKENDS["ollama"]["model"],"api_key":""})
-            backend_key  = "ollama"
-            backend_info = AI_BACKENDS["ollama"]
+            print("  ⚠️  No API key entered.")
+            print("  You can add it later by typing 'setup' inside VibeCoder.")
+            print("  Without a key, this backend will not work.")
 
     models = backend_info["models"]
     if len(models) > 1:
@@ -265,10 +265,10 @@ def setup_ai_backend(force: bool = False) -> dict:
 
 
 def ai_ask(messages: list, timeout: int = 300) -> str | None:
-    backend = AI_CFG.get("backend", "ollama")
+    backend = AI_CFG.get("backend", "groq")
     model   = AI_CFG.get("model",   "qwen2.5-coder:3b")
     key     = AI_CFG.get("api_key", "")
-    info    = AI_BACKENDS.get(backend, AI_BACKENDS["ollama"])
+    info    = AI_BACKENDS.get(backend, list(AI_BACKENDS.values())[0])
 
     # For custom backend, use saved url and api_format
     if backend == "custom":
@@ -310,19 +310,21 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
             return resp.json()["choices"][0]["message"]["content"]
 
     except requests.exceptions.ConnectionError:
-        if backend != "ollama":
-            print(f"\n  Cannot reach {info['name']}. Falling back to Ollama...")
-            orig = AI_CFG.copy()
-            AI_CFG.update({"backend":"ollama","model":AI_BACKENDS["ollama"]["model"]})
-            result = ai_ask(messages, timeout)
-            AI_CFG.update(orig)
-            return result
-        print("\n  Cannot reach Ollama. Run: ollama serve")
+        if backend == "ollama":
+            print("\n  Cannot reach Ollama.")
+            print("  Make sure Ollama is running: ollama serve")
+            print("  Or switch to a cloud API: type 'setup'")
+        else:
+            print(f"\n  Cannot reach {info['name']}. Check internet connection.")
+            print("  Type 'setup' to switch to a different backend.")
     except requests.exceptions.Timeout:
         if backend == "ollama":
-            print("\n  Timeout. Try: ollama pull qwen2.5-coder:3b")
+            print("\n  Timeout. Ollama is slow on CPU.")
+            print("  Try a smaller model: ollama pull qwen2.5-coder:3b")
+            print("  Or switch to a fast free API: type 'setup' → choose Groq")
         else:
-            print("\n  Timeout. Check internet or type 'setup' to switch backend.")
+            print("\n  Timeout. Check your internet connection.")
+            print("  Type 'setup' to switch to a different backend.")
     except requests.exceptions.HTTPError as e:
         code = e.response.status_code if e.response else 0
         if code == 401:   print("\n  Invalid API key. Type 'setup' to update.")
@@ -851,6 +853,120 @@ def sanitize_code(code: str, board: dict) -> str:
 # SECTION 6 — Compile with AI Auto-Fix
 # ══════════════════════════════════════════════════════════════════════════════
 
+def auto_install_libraries(code: str):
+    """
+    Scans code for #include statements and auto-installs
+    missing Arduino libraries via arduino-cli.
+    """
+    # Extract all includes
+    includes = re.findall(r'#include\s*[<"]([^>"]+)[>"]', code)
+
+    # Built-in libraries that don't need installing
+    builtin = {
+        "Arduino.h","Wire.h","SPI.h","EEPROM.h","Servo.h",
+        "SoftwareSerial.h","LiquidCrystal.h","SD.h","Stepper.h",
+        "WiFi.h","WiFiClient.h","WiFiServer.h","WebServer.h",
+        "ESP8266WiFi.h","ESP8266WebServer.h","HTTPClient.h",
+        "BluetoothSerial.h","BLEDevice.h","Preferences.h",
+        "FS.h","SPIFFS.h","LittleFS.h","Update.h",
+        "math.h","string.h","stdlib.h","stdio.h",
+    }
+
+    # Map common includes to their arduino-cli library names
+    lib_map = {
+        "DHT.h":              "DHT sensor library",
+        "DHT_U.h":            "DHT sensor library",
+        "Adafruit_Sensor.h":  "Adafruit Unified Sensor",
+        "Adafruit_BMP280.h":  "Adafruit BMP280 Library",
+        "Adafruit_BME280.h":  "Adafruit BME280 Library",
+        "Adafruit_MPU6050.h": "Adafruit MPU6050",
+        "Adafruit_GFX.h":     "Adafruit GFX Library",
+        "Adafruit_SSD1306.h": "Adafruit SSD1306",
+        "Adafruit_ILI9341.h": "Adafruit ILI9341",
+        "Adafruit_NeoPixel.h":"Adafruit NeoPixel",
+        "LiquidCrystal_I2C.h":"LiquidCrystal I2C",
+        "FastLED.h":          "FastLED",
+        "IRremote.h":         "IRremote",
+        "IRremoteESP8266.h":  "IRremote",
+        "PubSubClient.h":     "PubSubClient",
+        "ArduinoJson.h":      "ArduinoJson",
+        "RTClib.h":           "RTClib",
+        "OneWire.h":          "OneWire",
+        "DallasTemperature.h":"DallasTemperature",
+        "Ultrasonic.h":       "Ultrasonic",
+        "NewPing.h":          "NewPing",
+        "Keypad.h":           "Keypad",
+        "TM1637Display.h":    "TM1637",
+        "MAX30105.h":         "SparkFun MAX3010x Pulse and Proximity Sensor Library",
+        "MPU6050.h":          "MPU6050",
+        "HX711.h":            "HX711",
+        "Stepper.h":          "Stepper",
+        "AccelStepper.h":     "AccelStepper",
+        "ESP32Servo.h":       "ESP32Servo",
+        "ESPAsyncWebServer.h":"ESPAsyncWebServer-esphome",
+        "AsyncTCP.h":         "AsyncTCP",
+        "MQTT.h":             "MQTT",
+        "Ticker.h":           "Ticker",
+    }
+
+    to_install = []
+    for inc in includes:
+        if inc in builtin: continue
+        lib_name = lib_map.get(inc)
+        if lib_name:
+            to_install.append((inc, lib_name))
+        else:
+            # Ask AI to identify the library
+            pass
+
+    if not to_install:
+        return
+
+    print(f"\n   📚 Found {len(to_install)} library/ies to install:")
+    for inc, lib in to_install:
+        print(f"      {inc} → {lib}")
+
+    # Check which are already installed
+    r = subprocess.run(["arduino-cli","lib","list"],
+                       capture_output=True, text=True)
+    installed = r.stdout.lower()
+
+    for inc, lib in to_install:
+        if lib.lower() in installed:
+            print(f"      ✅ {lib} already installed")
+            continue
+        print(f"      📦 Installing {lib}...", end="", flush=True)
+        r = subprocess.run(
+            ["arduino-cli","lib","install", lib],
+            capture_output=True, text=True
+        )
+        if r.returncode == 0:
+            print(" ✅")
+        else:
+            # Try search + install by partial name
+            search = subprocess.run(
+                ["arduino-cli","lib","search", inc.replace(".h",""),"--format","json"],
+                capture_output=True, text=True
+            )
+            try:
+                results = json.loads(search.stdout)
+                libs    = results.get("libraries", results) if isinstance(results,dict) else results
+                if libs:
+                    best = libs[0].get("name","") if isinstance(libs[0],dict) else ""
+                    if best:
+                        r2 = subprocess.run(
+                            ["arduino-cli","lib","install", best],
+                            capture_output=True, text=True
+                        )
+                        print(f" {'✅' if r2.returncode==0 else '⚠️ failed'}")
+                    else:
+                        print(" ⚠️ not found")
+                else:
+                    print(" ⚠️ not found in registry")
+            except Exception:
+                print(" ⚠️ install failed")
+
+
 def compile_sketch(fqbn: str) -> tuple:
     build_dir = os.path.join(SKETCH_DIR, "build")
     os.makedirs(build_dir, exist_ok=True)
@@ -870,6 +986,9 @@ def compile_with_autofix(code: str, board: dict) -> bool:
     }
     hint = next((v for k,v in hints.items() if k in fqbn), f"Board: {board['name']}")
     current = code
+
+    # Auto-install libraries on first pass
+    auto_install_libraries(current)
 
     for attempt in range(3):
         os.makedirs(SKETCH_DIR, exist_ok=True)
@@ -1291,6 +1410,98 @@ def load_project(pick: str) -> dict | None:
 
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 8c - Serial Monitor
+# ══════════════════════════════════════════════════════════════════════════════
+
+def serial_monitor(port: str, baud: int = 115200):
+    """
+    Interactive serial monitor.
+    - Shows incoming data from board in real time
+    - Lets user send messages to the board
+    - Ctrl+C to exit cleanly
+    - Auto-detects common baud rates if connection fails
+    """
+    try:
+        import serial
+        import serial.tools.list_ports
+        import threading
+    except ImportError:
+        print("   Installing pyserial...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "pyserial", "-q"])
+        import serial
+        import threading
+
+    # Try to find port if not given
+    if not port or not os.path.exists(port) and not IS_WINDOWS:
+        ports = list_serial_ports()
+        if not ports:
+            print("   No serial port found. Is your board connected?")
+            return
+        port = ports[0]
+        print(f"   Using port: {port}")
+
+    # Common baud rates to try
+    bauds_to_try = [baud, 115200, 9600, 57600, 38400, 4800]
+
+    ser = None
+    for b in bauds_to_try:
+        try:
+            ser = serial.Serial(port, b, timeout=0.1)
+            print(f"\n   Serial Monitor — {port} @ {b} baud")
+            print("   Press Ctrl+C to exit. Type messages and press Enter to send.")
+            print("   " + "─"*50)
+            break
+        except Exception as e:
+            ser = None
+            continue
+
+    if not ser:
+        print(f"   Could not open {port}. Try a different baud rate.")
+        return
+
+    stop_flag = threading.Event()
+
+    def _reader():
+        """Background thread: reads from board and prints."""
+        buf = b""
+        while not stop_flag.is_set():
+            try:
+                chunk = ser.read(64)
+                if chunk:
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        text = line.decode("utf-8", errors="replace").rstrip()
+                        if text:
+                            print(f"\r   \033[36m{text}\033[0m")
+            except Exception:
+                break
+
+    reader_thread = threading.Thread(target=_reader, daemon=True)
+    reader_thread.start()
+
+    try:
+        while True:
+            msg = smart_input("")
+            if msg:
+                try:
+                    ser.write((msg + "\n").encode("utf-8"))
+                except Exception:
+                    print("   Write error — board may have disconnected.")
+                    break
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        stop_flag.set()
+        reader_thread.join(timeout=1)
+        try:
+            ser.close()
+        except Exception:
+            pass
+        print("\n   Serial monitor closed.")
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — Deploy Pipeline
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1395,20 +1606,29 @@ def ensure_arduino_cli():
         print("   Then restart VibeCoder.")
         sys.exit(1)
 
-def main():
+def main(cli_port=None, cli_board=None, cli_baud=None,
+         cli_monitor=False, cli_setup=False):
     print("=" * 60)
     print("  VibeCoder v6.1 - Universal AI Hardware Agent")
     print(f"  Platform: {platform.system()}")
     print("=" * 60)
 
     _ensure_deps()
-    ensure_arduino_cli()
     load_db()
 
     global AI_CFG
-    AI_CFG = setup_ai_backend()
+    AI_CFG = setup_ai_backend(force=cli_setup)
 
-    board = detect_board()
+    # Use CLI board if provided, otherwise auto-detect
+    if cli_board and cli_port:
+        board = {**cli_board, "port": cli_port}
+        if cli_baud: board["upload_speed"] = cli_baud
+        print(f"\n✔  Board  : {board['name']} (from --board flag)")
+        print(f"   Port   : {board['port']} (from --port flag)")
+    else:
+        board = detect_board()
+        if cli_port:  board["port"]         = cli_port
+        if cli_baud:  board["upload_speed"] = cli_baud
     if not board.get("port"):
         print("\n⚠️  No board detected. Plug in your board and restart.")
         return
@@ -1423,12 +1643,17 @@ def main():
 
     ensure_core(board["fqbn"])
 
+    # --monitor flag: open serial monitor immediately
+    if cli_monitor:
+        serial_monitor(board.get("port",""))
+        return
+
     ai            = AIAgent(board)
     last_response = None
 
     print("\n" + "─"*60)
     print("Describe what you want your hardware to do.")
-    print("Commands: 'exit' | 'redeploy' | 'history' | 'load <n>' | 'update' | 'setup'")
+    print("Commands: 'exit' | 'redeploy' | 'monitor [baud]' | 'history' | 'load <n>' | 'update' | 'setup'")
     print("─"*60)
 
     while True:
@@ -1471,6 +1696,12 @@ def main():
                     deploy(proj["code"], board, proj["meta"]["task"])
             continue
 
+        if user_input.lower().startswith("monitor"):
+            parts = user_input.split()
+            baud  = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 115200
+            serial_monitor(board.get("port",""), baud)
+            continue
+
         print(f"\n🤖 Thinking ({AI_CFG.get('model','AI')})...\n")
         response = ai.ask(user_input)
         if not response: continue
@@ -1484,10 +1715,57 @@ def main():
 
 
 if __name__ == "__main__":
-    # Auto-install arduino-cli if missing
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="VibeCoder — Program any microcontroller with plain English",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python vibecoder.py
+  python vibecoder.py --board esp32 --port COM3
+  python vibecoder.py --port /dev/ttyUSB0 --baud 115200
+  python vibecoder.py --monitor
+  python vibecoder.py --setup
+        """
+    )
+    parser.add_argument("--port",    type=str, help="Serial port (e.g. COM3 or /dev/ttyUSB0)")
+    parser.add_argument("--board",   type=str, help="Board FQBN or short name (e.g. esp32, uno, nano)")
+    parser.add_argument("--baud",    type=int, help="Upload baud rate (default: auto)")
+    parser.add_argument("--monitor", action="store_true", help="Open serial monitor immediately")
+    parser.add_argument("--setup",   action="store_true", help="Run AI backend setup wizard")
+    parser.add_argument("--version", action="store_true", help="Show version and exit")
+    args = parser.parse_args()
+
+    if args.version:
+        print("VibeCoder v6.1 — Universal AI Hardware Agent")
+        print("github.com/YOUR_USERNAME/vibecoder")
+        sys.exit(0)
+
     ensure_arduino_cli()
+
     try:
-        main()
+        # Board shortname map for --board flag
+        board_shortcuts = {
+            "uno":    {"fqbn":"arduino:avr:uno",           "name":"Arduino Uno",        "upload_speed":115200, "upload_method":"avrdude"},
+            "nano":   {"fqbn":"arduino:avr:nano",          "name":"Arduino Nano",       "upload_speed":57600,  "upload_method":"avrdude"},
+            "mega":   {"fqbn":"arduino:avr:mega2560",      "name":"Arduino Mega 2560",  "upload_speed":115200, "upload_method":"avrdude"},
+            "esp32":  {"fqbn":"esp32:esp32:esp32",         "name":"ESP32 DevKit",       "upload_speed":921600, "upload_method":"esptool"},
+            "esp8266":{"fqbn":"esp8266:esp8266:nodemcuv2", "name":"NodeMCU ESP8266",    "upload_speed":921600, "upload_method":"esptool"},
+            "nodemcu":{"fqbn":"esp8266:esp8266:nodemcuv2", "name":"NodeMCU ESP8266",    "upload_speed":921600, "upload_method":"esptool"},
+            "pico":   {"fqbn":"rp2040:rp2040:rpipico",     "name":"Raspberry Pi Pico",  "upload_speed":None,   "upload_method":"uf2"},
+            "picow":  {"fqbn":"rp2040:rp2040:rpipicow",    "name":"Raspberry Pi Pico W","upload_speed":None,   "upload_method":"uf2"},
+            "leonardo":{"fqbn":"arduino:avr:leonardo",     "name":"Arduino Leonardo",   "upload_speed":None,   "upload_method":"arduino-cli"},
+            "due":    {"fqbn":"arduino:sam:arduino_due_x", "name":"Arduino Due",        "upload_speed":None,   "upload_method":"bossac"},
+        }
+
+        main(
+            cli_port  = args.port,
+            cli_board = board_shortcuts.get(args.board.lower(), None) if args.board else None,
+            cli_baud  = args.baud,
+            cli_monitor = args.monitor,
+            cli_setup = args.setup,
+        )
     except KeyboardInterrupt:
         print("\n   Goodbye! 👋")
         sys.exit(0)
