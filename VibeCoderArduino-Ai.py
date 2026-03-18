@@ -34,7 +34,6 @@ HISTORY_DIR    = os.path.join(HOME, ".vibecoder_history")
 HISTORY_INDEX  = os.path.join(HISTORY_DIR, "index.json")
 
 # ── AI Backend Configuration ──────────────────────────────────────────────────
-# Supported backends and their best models for Arduino code generation
 AI_BACKENDS = {
     "groq": {
         "name":     "Groq (free, ~150 tokens/sec)",
@@ -103,17 +102,15 @@ AI_BACKENDS = {
     },
 }
 
-# Well-known custom endpoints for reference
 KNOWN_CUSTOM_APIS = {
-    "deepseek":   ("https://api.deepseek.com/v1/chat/completions",        "deepseek-coder",              "https://platform.deepseek.com"),
-    "together":   ("https://api.together.xyz/v1/chat/completions",        "Qwen/Qwen2.5-Coder-32B-Instruct", "https://api.together.ai"),
-    "cohere":     ("https://api.cohere.ai/v1/chat",                       "command-r-plus",              "https://dashboard.cohere.com"),
+    "deepseek":   ("https://api.deepseek.com/v1/chat/completions",         "deepseek-coder",                          "https://platform.deepseek.com"),
+    "together":   ("https://api.together.xyz/v1/chat/completions",         "Qwen/Qwen2.5-Coder-32B-Instruct",         "https://api.together.ai"),
+    "cohere":     ("https://api.cohere.ai/v1/chat",                        "command-r-plus",                          "https://dashboard.cohere.com"),
     "fireworks":  ("https://api.fireworks.ai/inference/v1/chat/completions","accounts/fireworks/models/qwen2p5-coder-32b-instruct", "https://fireworks.ai"),
-    "nvidia":     ("https://integrate.api.nvidia.com/v1/chat/completions", "qwen/qwen2.5-coder-32b-instruct", "https://build.nvidia.com"),
-    "ollama":     ("http://localhost:11434/v1/chat/completions",           "qwen2.5-coder:7b",            "local"),
+    "nvidia":     ("https://integrate.api.nvidia.com/v1/chat/completions",  "qwen/qwen2.5-coder-32b-instruct",         "https://build.nvidia.com"),
+    "ollama":     ("http://localhost:11434/v1/chat/completions",            "qwen2.5-coder:7b",                        "local"),
 }
 
-# Active backend config — set by setup_ai_backend()
 AI_CFG: dict = {}
 
 # ── Smart input with arrow keys, history ─────────────────────────────────────
@@ -144,7 +141,6 @@ def smart_input(prompt_text: str) -> str:
         except Exception:
             pass
     return input(prompt_text).strip()
-
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -190,7 +186,6 @@ def setup_ai_backend(force: bool = False) -> dict:
 
     cfg = {"backend": backend_key, "model": backend_info["model"], "api_key": ""}
 
-    # ── Custom API setup ─────────────────────────────────────────────────────
     if backend_key == "custom":
         print("\n  Known providers (or enter your own):")
         known = list(KNOWN_CUSTOM_APIS.items())
@@ -209,7 +204,6 @@ def setup_ai_backend(force: bool = False) -> dict:
             cfg["model"] = smart_input("  Model name: ").strip()
             key_url      = ""
         else:
-            # Text match
             hits = [(n,v) for n,v in known if pick.lower() in n.lower()]
             if hits:
                 pname, (url, model, key_url) = hits[0]
@@ -220,15 +214,12 @@ def setup_ai_backend(force: bool = False) -> dict:
                 cfg["url"]   = smart_input("  API endpoint URL: ").strip()
                 cfg["model"] = smart_input("  Model name: ").strip()
 
-        # Allow model override
         override = smart_input(f"  Model [{cfg['model']}] (Enter to keep): ").strip()
         if override:
             cfg["model"] = override
 
         key = smart_input("  API key (Enter to skip): ").strip()
         cfg["api_key"] = key
-
-        # Detect if it needs Anthropic format
         cfg["api_format"] = "anthropic" if "anthropic.com" in cfg.get("url","") else "openai"
 
         _save_config(cfg)
@@ -236,7 +227,6 @@ def setup_ai_backend(force: bool = False) -> dict:
         print(f"  Model: {cfg['model']}\n")
         return cfg
 
-    # ── Standard backend setup ────────────────────────────────────────────────
     if backend_info["needs_key"]:
         if backend_info.get("key_url"):
             print(f"\n  Get API key at: {backend_info['key_url']}")
@@ -270,13 +260,13 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
     key     = AI_CFG.get("api_key", "")
     info    = AI_BACKENDS.get(backend, list(AI_BACKENDS.values())[0])
 
-    # For custom backend, use saved url and api_format
     if backend == "custom":
         url        = AI_CFG.get("url", "")
         api_format = AI_CFG.get("api_format", "openai")
     else:
         url        = info["url"]
-        api_format = "anthropic" if backend == "anthropic" else                      "ollama"    if backend == "ollama"    else "openai"
+        api_format = "anthropic" if backend == "anthropic" else \
+                     "ollama"    if backend == "ollama"    else "openai"
 
     try:
         if api_format == "anthropic":
@@ -297,7 +287,7 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
             resp.raise_for_status()
             return resp.json()["message"]["content"]
 
-        else:  # openai-compatible (Groq, OpenRouter, Mistral, DeepSeek, custom...)
+        else:
             headers = {"Authorization":f"Bearer {key}","Content-Type":"application/json"}
             if backend == "openrouter":
                 headers["HTTP-Referer"] = "https://github.com/vibecoder"
@@ -334,6 +324,7 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
         print(f"\n  AI error: {e}")
     return None
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — Board Database (Online + Local Fallback)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -341,7 +332,6 @@ def ai_ask(messages: list, timeout: int = 300) -> str | None:
 _DB: dict = {}
 
 def _load_builtin_db() -> dict:
-    """Minimal built-in DB — used if GitHub is unreachable."""
     return {
         "_meta": {"version": "builtin"},
         "usb_fingerprints": [
@@ -371,15 +361,8 @@ def _load_builtin_db() -> dict:
     }
 
 def load_db() -> dict:
-    """
-    Loads board database:
-    1. From local cache if < 24h old
-    2. Download from GitHub
-    3. Fall back to built-in
-    """
     global _DB
 
-    # Check local cache
     if os.path.exists(BOARDS_DB_FILE):
         age = time.time() - os.path.getmtime(BOARDS_DB_FILE)
         if age < BOARDS_DB_TTL:
@@ -392,7 +375,6 @@ def load_db() -> dict:
             except Exception:
                 pass
 
-    # Download from GitHub
     try:
         print("   🌐 Checking for board database updates...")
         resp = requests.get(BOARDS_DB_URL, timeout=10)
@@ -406,7 +388,6 @@ def load_db() -> dict:
     except Exception:
         pass
 
-    # Load from old cache even if expired
     if os.path.exists(BOARDS_DB_FILE):
         try:
             with open(BOARDS_DB_FILE) as f:
@@ -416,18 +397,15 @@ def load_db() -> dict:
         except Exception:
             pass
 
-    # Built-in fallback
     print("   📋 Using built-in board database (offline)")
     _DB = _load_builtin_db()
     return _DB
 
 def get_pin_rules(fqbn: str, board_name: str = "") -> dict:
-    """Returns pin rules from DB or fetches from AI for unknown boards."""
     rules_db = _DB.get("pin_rules", {})
 
     for key, rules in rules_db.items():
         if key in fqbn or fqbn in key:
-            # Normalize: lists → tuples for reserved
             norm = {}
             for pin, val in rules.get("reserved", {}).items():
                 if isinstance(val, list) and len(val) >= 2:
@@ -441,14 +419,13 @@ def get_pin_rules(fqbn: str, board_name: str = "") -> dict:
     if fqbn in _pin_rules_cache:
         return _pin_rules_cache[fqbn]
 
-    # Ask AI for unknown board
     print(f"   🤖 Fetching pin rules for {board_name or fqbn}...")
     try:
         text = ai_ask([{"role":"user","content":(
                 f"For {board_name} (FQBN: {fqbn}), list reserved/unsafe GPIO pins "
                 "that must not be used for external components, and safe pins. "
                 'Reply ONLY with JSON: {"reserved":{"PIN":["reason","alternative"]},'
-                '"safe":["pin1",...],"analog":["pin1",...],"note":"voltage/current info","code_fixes":{}}' 
+                '"safe":["pin1",...],"analog":["pin1",...],"note":"voltage/current info","code_fixes":{}}'
             )}], timeout=60)
         if not text: raise ValueError("no response")
         s, e = text.find("{"), text.rfind("}") + 1
@@ -475,13 +452,11 @@ _pin_rules_cache: dict = {}
 # ══════════════════════════════════════════════════════════════════════════════
 
 def list_serial_ports() -> list[str]:
-    """Returns available serial ports on any OS."""
     if IS_WINDOWS:
         try:
             from serial.tools import list_ports
             return [p.device for p in list_ports.comports()]
         except ImportError:
-            # Fallback: scan COM ports
             ports = []
             for i in range(1, 20):
                 port = f"COM{i}"
@@ -498,7 +473,7 @@ def list_serial_ports() -> list[str]:
         return (glob.glob("/dev/tty.usbserial*") +
                 glob.glob("/dev/tty.usbmodem*") +
                 glob.glob("/dev/cu.usbserial*"))
-    else:  # Linux
+    else:
         ports = []
         for p in [f"/dev/ttyUSB{i}" for i in range(8)] + \
                  [f"/dev/ttyACM{i}" for i in range(8)]:
@@ -507,7 +482,6 @@ def list_serial_ports() -> list[str]:
         return ports
 
 def _usb_ids(port: str) -> tuple:
-    """Get USB VID/PID for a port — cross-platform."""
     if IS_WINDOWS:
         try:
             from serial.tools import list_ports
@@ -521,7 +495,6 @@ def _usb_ids(port: str) -> tuple:
         try:
             r = subprocess.run(["system_profiler","SPUSBDataType"],
                                capture_output=True, text=True, timeout=5)
-            # Parse VID/PID from system_profiler output
             vid = pid = ""
             for line in r.stdout.splitlines():
                 if "Vendor ID:" in line:
@@ -531,7 +504,7 @@ def _usb_ids(port: str) -> tuple:
             return (vid, pid)
         except Exception:
             return ("", "")
-    else:  # Linux
+    else:
         try:
             name = os.path.basename(port)
             path = os.path.realpath(f"/sys/class/tty/{name}/device")
@@ -546,7 +519,6 @@ def _usb_ids(port: str) -> tuple:
         return ("", "")
 
 def _chip_from_dmesg(port: str) -> str:
-    """Linux only — get chip name from dmesg."""
     if not IS_LINUX: return ""
     try:
         name = os.path.basename(port)
@@ -561,7 +533,6 @@ def _chip_from_dmesg(port: str) -> str:
     return ""
 
 def _ensure_serial_permissions(port: str):
-    """Linux: add user to dialout group if needed."""
     if not IS_LINUX: return
     try:
         import grp, pwd
@@ -577,7 +548,6 @@ def _ensure_serial_permissions(port: str):
         pass
 
 def _fingerprint(port: str) -> list[dict]:
-    """Match port against USB fingerprint database."""
     vid, pid = _usb_ids(port)
     chip     = _chip_from_dmesg(port)
     print(f"   🔬 USB {vid or '?'}:{pid or '?'}  chip: {chip or 'unknown'}")
@@ -594,9 +564,7 @@ def _fingerprint(port: str) -> list[dict]:
     return sorted(matches, key=lambda x: -x["score"])
 
 def _manual_select(port: str, candidates: list[dict]) -> dict:
-    """Show board selection menu — accepts number or text search."""
     manual = _DB.get("manual_selection_boards", [])
-    # Merge candidates + manual list, deduplicate
     seen, options = set(), []
     for o in candidates + manual:
         if o["fqbn"] not in seen:
@@ -623,7 +591,6 @@ def _manual_select(port: str, candidates: list[dict]) -> dict:
             for i, h in enumerate(hits, 1):
                 print(f"      {i}. {h['name']}")
         else:
-            # Check if user typed "raspberry pi" without "pico"
             if "raspberry" in pick and "pico" not in pick:
                 print("   ℹ️  The standard Raspberry Pi runs Linux and cannot be")
                 print("      programmed with Arduino. Did you mean 'Raspberry Pi Pico'?")
@@ -631,10 +598,8 @@ def _manual_select(port: str, candidates: list[dict]) -> dict:
                 print(f"   No match for '{pick}'. Try a number or different keyword.")
 
 def detect_board() -> dict:
-    """Full cross-platform board detection pipeline."""
     print("\n🔍 Scanning for connected boards...")
 
-    # 1. Try arduino-cli board list
     try:
         r = subprocess.run(
             ["arduino-cli","board","list","--format","json"],
@@ -652,7 +617,6 @@ def detect_board() -> dict:
                     fqbn = boards[0]["fqbn"]
                     name = boards[0].get("name", fqbn)
                     print(f"   ✅ Identified: {name}")
-                    # Find upload info from DB
                     for row in _DB.get("usb_fingerprints",[]):
                         if row["fqbn"] == fqbn:
                             return {"port":port,"fqbn":fqbn,"name":name,
@@ -674,7 +638,6 @@ def detect_board() -> dict:
     except Exception:
         pass
 
-    # 2. Scan ports manually
     ports = list_serial_ports()
     if ports:
         port       = ports[0]
@@ -797,25 +760,20 @@ def extract_code(text: str) -> str:
     return text.strip()
 
 def sanitize_code(code: str, board: dict) -> str:
-    """Fix AI code before compilation: libraries, pin names, reserved pins, pinMode."""
     fqbn  = board["fqbn"]
     rules = get_pin_rules(fqbn, board.get("name",""))
 
-    # ── Library fixes ─────────────────────────────────────────────────────────
     for wrong, correct in rules.get("code_fixes",{}).items():
         code = code.replace(wrong, correct)
-    # Remove WiFi include if WiFi not used
     for h in ["#include <WiFi.h>","#include <ESP8266WiFi.h>"]:
         if h in code and "WiFi." not in code.replace(h,""):
             code = code.replace(h, "")
 
-    # ── Pin naming ────────────────────────────────────────────────────────────
     if "avr" in fqbn:
         code = re.sub(r'\bD(\d+)\b', r'\1', code)
     if "esp32" in fqbn and "esp8266" not in fqbn:
         code = re.sub(r'\bD(\d+)\b', r'\1', code)
 
-    # ── Reserved pin check — warn + ask ──────────────────────────────────────
     for bad_pin, (reason, good_pin) in rules.get("reserved",{}).items():
         fp = rf'((?:digitalWrite|digitalRead|pinMode|analogWrite|analogRead)\s*\(\s*){re.escape(bad_pin)}(\s*[,)])'
         ap = rf'((?:=|#define\s+\w+)\s*){re.escape(bad_pin)}\b'
@@ -832,7 +790,6 @@ def sanitize_code(code: str, board: dict) -> str:
             else:
                 print(f"      ⚡ Keeping {bad_pin} — proceed with caution.")
 
-    # ── Auto-add missing pinMode() ────────────────────────────────────────────
     write_pins = re.findall(r'digitalWrite\s*\(\s*(\w+)\s*,', code)
     read_pins  = re.findall(r'digitalRead\s*\(\s*(\w+)\s*\)', code)
     all_pins   = list(dict.fromkeys(write_pins + read_pins))
@@ -854,14 +811,8 @@ def sanitize_code(code: str, board: dict) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def auto_install_libraries(code: str):
-    """
-    Scans code for #include statements and auto-installs
-    missing Arduino libraries via arduino-cli.
-    """
-    # Extract all includes
     includes = re.findall(r'#include\s*[<"]([^>"]+)[>"]', code)
 
-    # Built-in libraries that don't need installing
     builtin = {
         "Arduino.h","Wire.h","SPI.h","EEPROM.h","Servo.h",
         "SoftwareSerial.h","LiquidCrystal.h","SD.h","Stepper.h",
@@ -872,7 +823,6 @@ def auto_install_libraries(code: str):
         "math.h","string.h","stdlib.h","stdio.h",
     }
 
-    # Map common includes to their arduino-cli library names
     lib_map = {
         "DHT.h":              "DHT sensor library",
         "DHT_U.h":            "DHT sensor library",
@@ -915,9 +865,6 @@ def auto_install_libraries(code: str):
         lib_name = lib_map.get(inc)
         if lib_name:
             to_install.append((inc, lib_name))
-        else:
-            # Ask AI to identify the library
-            pass
 
     if not to_install:
         return
@@ -926,7 +873,6 @@ def auto_install_libraries(code: str):
     for inc, lib in to_install:
         print(f"      {inc} → {lib}")
 
-    # Check which are already installed
     r = subprocess.run(["arduino-cli","lib","list"],
                        capture_output=True, text=True)
     installed = r.stdout.lower()
@@ -943,7 +889,6 @@ def auto_install_libraries(code: str):
         if r.returncode == 0:
             print(" ✅")
         else:
-            # Try search + install by partial name
             search = subprocess.run(
                 ["arduino-cli","lib","search", inc.replace(".h",""),"--format","json"],
                 capture_output=True, text=True
@@ -976,7 +921,6 @@ def compile_sketch(fqbn: str) -> tuple:
     return r.returncode == 0, r.stderr + r.stdout
 
 def compile_with_autofix(code: str, board: dict) -> bool:
-    """Compile → AI fix loop (max 3 attempts)."""
     fqbn = board["fqbn"]
     hints = {
         "esp8266": "Use #include <ESP8266WiFi.h>, D-prefix pins (D1,D2,D5,D6,D7), 3.3V.",
@@ -984,10 +928,9 @@ def compile_with_autofix(code: str, board: dict) -> bool:
         "avr":     "Plain pin numbers (13 not D13), 5V logic.",
         "rp2040":  "GP prefix (GP0,GP1...), 3.3V, Arduino-Pico framework.",
     }
-    hint = next((v for k,v in hints.items() if k in fqbn), f"Board: {board['name']}")
+    hint    = next((v for k,v in hints.items() if k in fqbn), f"Board: {board['name']}")
     current = code
 
-    # Auto-install libraries on first pass
     auto_install_libraries(current)
 
     for attempt in range(3):
@@ -1175,7 +1118,6 @@ def upload(board: dict) -> bool:
     print(f"\n🚀 Uploading to {board['name']} on {port}...")
 
     for i, (strat, baud) in enumerate(strategies):
-        # Re-check port
         if port and not os.path.exists(port) and not IS_WINDOWS:
             ports = list_serial_ports()
             if ports:
@@ -1185,20 +1127,19 @@ def upload(board: dict) -> bool:
         label = strat + (f" @{baud}" if baud else "")
         print(f"   [{i+1}/{len(strategies)}] {label}... ", end="", flush=True)
 
-        if   strat == "avrdude":         ok, err = _upload_avrdude(port, fqbn, baud)
-        elif strat == "esptool":         ok, err = _upload_esptool(port, fqbn)
-        elif strat == "uf2":             ok, err = _upload_uf2(port, fqbn)
-        elif strat == "dfu":             ok, err = _upload_dfu(port, fqbn)
-        elif strat == "bossac":          ok, err = _upload_bossac(port, fqbn)
-        elif strat == "arduino-cli-sudo":ok, err = _upload_arduino_cli(port, fqbn, True)
-        else:                            ok, err = _upload_arduino_cli(port, fqbn, False)
+        if   strat == "avrdude":          ok, err = _upload_avrdude(port, fqbn, baud)
+        elif strat == "esptool":          ok, err = _upload_esptool(port, fqbn)
+        elif strat == "uf2":              ok, err = _upload_uf2(port, fqbn)
+        elif strat == "dfu":              ok, err = _upload_dfu(port, fqbn)
+        elif strat == "bossac":           ok, err = _upload_bossac(port, fqbn)
+        elif strat == "arduino-cli-sudo": ok, err = _upload_arduino_cli(port, fqbn, True)
+        else:                             ok, err = _upload_arduino_cli(port, fqbn, False)
 
         if ok:
             print("✅")
             print("✅ Upload successful! Hardware is live.\n")
             return True
 
-        # Auto-correct wrong chip
         if "this chip is esp8266" in err.lower() and "esp32" in fqbn:
             print("✗\n   🔧 Auto-correcting ESP32→ESP8266...")
             board.update({"fqbn":"esp8266:esp8266:nodemcuv2",
@@ -1269,15 +1210,13 @@ def parse_wiring(text: str) -> list[dict]:
                              "board_pin":p[2],"notes":p[3] if len(p)>3 else ""})
     return rows
 
-# ── Live-reload web server for wiring diagram ────────────────────────────────
 _diagram_server = None
 _diagram_port   = 7890
 
 def _start_diagram_server():
-    """Start a tiny HTTP server that serves the wiring diagram with live reload."""
     global _diagram_server
     if _diagram_server:
-        return  # Already running
+        return
 
     import http.server, threading, socketserver
 
@@ -1285,12 +1224,10 @@ def _start_diagram_server():
         def do_GET(self):
             if self.path == "/" or self.path == "/index.html":
                 self.path = "/" + os.path.basename(DIAGRAM_FILE)
-            # Inject live-reload script into HTML responses
             if self.path.endswith(".html"):
                 try:
                     with open(DIAGRAM_FILE, "rb") as f:
                         content = f.read()
-                    # Inject auto-refresh every 2 seconds
                     inject = b"""<script>
                         let lastMod = null;
                         setInterval(async () => {
@@ -1309,7 +1246,6 @@ def _start_diagram_server():
                 except Exception:
                     super().do_GET()
             elif self.path.startswith("/ping"):
-                # Return last-modified time for change detection
                 try:
                     mtime = str(os.path.getmtime(DIAGRAM_FILE))
                 except Exception:
@@ -1320,7 +1256,7 @@ def _start_diagram_server():
             else:
                 super().do_GET()
 
-        def log_message(self, *args): pass  # Silence server logs
+        def log_message(self, *args): pass
 
     os.chdir(os.path.dirname(DIAGRAM_FILE) or HOME)
     try:
@@ -1330,7 +1266,7 @@ def _start_diagram_server():
         t.start()
         _diagram_server = server
     except OSError:
-        pass  # Port already in use — server already running
+        pass
 
 
 def generate_diagram(board: dict, rows: list[dict], task: str):
@@ -1384,11 +1320,9 @@ footer{{margin-top:40px;text-align:center;color:#64748b;font-size:12px;font-fami
     with open(DIAGRAM_FILE, "w") as f:
         f.write(html)
 
-    # Start live-reload server on first diagram
     _start_diagram_server()
     url = f"http://127.0.0.1:{_diagram_port}/"
 
-    # Open browser only once — subsequent deploys auto-reload the open tab
     if not getattr(generate_diagram, "_opened", False):
         try:
             webbrowser.open(url)
@@ -1400,12 +1334,9 @@ footer{{margin-top:40px;text-align:center;color:#64748b;font-size:12px;font-fami
         print(f"   📊 Wiring diagram updated (live reload)")
 
 
-
-
-
-# ==============================================================================
-# SECTION 8b - Project History
-# ==============================================================================
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 8b — Project History
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _load_index() -> list:
     try:
@@ -1489,20 +1420,11 @@ def load_project(pick: str) -> dict | None:
         return None
 
 
-
-
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 8c - Serial Monitor
+# SECTION 8c — Serial Monitor
 # ══════════════════════════════════════════════════════════════════════════════
 
 def serial_monitor(port: str, baud: int = 115200):
-    """
-    Interactive serial monitor.
-    - Shows incoming data from board in real time
-    - Lets user send messages to the board
-    - Ctrl+C to exit cleanly
-    - Auto-detects common baud rates if connection fails
-    """
     try:
         import serial
         import serial.tools.list_ports
@@ -1513,7 +1435,6 @@ def serial_monitor(port: str, baud: int = 115200):
         import serial
         import threading
 
-    # Try to find port if not given
     if not port or not os.path.exists(port) and not IS_WINDOWS:
         ports = list_serial_ports()
         if not ports:
@@ -1522,7 +1443,6 @@ def serial_monitor(port: str, baud: int = 115200):
         port = ports[0]
         print(f"   Using port: {port}")
 
-    # Common baud rates to try
     bauds_to_try = [baud, 115200, 9600, 57600, 38400, 4800]
 
     ser = None
@@ -1533,7 +1453,7 @@ def serial_monitor(port: str, baud: int = 115200):
             print("   Press Ctrl+C to exit. Type messages and press Enter to send.")
             print("   " + "─"*50)
             break
-        except Exception as e:
+        except Exception:
             ser = None
             continue
 
@@ -1544,7 +1464,6 @@ def serial_monitor(port: str, baud: int = 115200):
     stop_flag = threading.Event()
 
     def _reader():
-        """Background thread: reads from board and prints."""
         buf = b""
         while not stop_flag.is_set():
             try:
@@ -1582,6 +1501,7 @@ def serial_monitor(port: str, baud: int = 115200):
             pass
         print("\n   Serial monitor closed.")
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — Deploy Pipeline
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1604,7 +1524,6 @@ def deploy(response: str, board: dict, task: str):
         return
 
     ok = upload(board)
-    # If chip was auto-corrected during upload, recompile and retry
     if not ok and board.get("fqbn") not in (board.get("_orig_fqbn",""), ""):
         print(f"\n Recompiling for corrected board: {board['name']}...")
         code = sanitize_code(code, board)
@@ -1612,7 +1531,6 @@ def deploy(response: str, board: dict, task: str):
         if compile_with_autofix(code, board):
             ok = upload(board)
 
-    # Save to history after successful upload
     if ok:
         save_project(task, code, rows, board)
 
@@ -1622,7 +1540,6 @@ def deploy(response: str, board: dict, task: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _ensure_deps():
-    """Auto-install missing Python dependencies."""
     deps = {"requests": "requests", "serial": "pyserial"}
     if not _HAS_PT:
         deps["prompt_toolkit"] = "prompt_toolkit"
@@ -1639,29 +1556,226 @@ def _ensure_deps():
         print("   ✅ Done. Restart if you see import errors.")
 
 
-def ensure_arduino_cli():
-    """Check and auto-install arduino-cli if missing."""
+def _install_arduino_cli_windows():
+    """
+    Install arduino-cli on Windows.
+    Strategy:
+      1. winget  (Windows 10 1709+ — most reliable)
+      2. GitHub Releases ZIP (manual download + extract)
+      3. Print manual instructions and exit
+    """
+    # ── Strategy 1: winget ───────────────────────────────────────────────────
+    print("   Trying winget...")
     try:
-        subprocess.run(["arduino-cli", "version"], capture_output=True, check=True)
-        return  # Already installed
-    except (FileNotFoundError, subprocess.CalledProcessError):
+        r = subprocess.run(
+            ["winget", "install", "--id", "Arduino.ArduinoCLI",
+             "--accept-source-agreements", "--accept-package-agreements",
+             "--silent"],
+            timeout=120
+        )
+        if r.returncode == 0:
+            # winget installs to %LOCALAPPDATA%\Microsoft\WinGet\Packages\ or
+            # C:\Program Files\Arduino CLI — refresh PATH in this process
+            _refresh_windows_path()
+            # Verify
+            v = subprocess.run(["arduino-cli", "version"],
+                               capture_output=True, text=True)
+            if v.returncode == 0:
+                print(f"   ✅ arduino-cli installed via winget: {v.stdout.strip()}")
+                return True
+    except FileNotFoundError:
+        print("   winget not available (Windows < 1709 or App Installer missing).")
+    except subprocess.TimeoutExpired:
+        print("   winget timed out.")
+    except Exception as e:
+        print(f"   winget failed: {e}")
+
+    # ── Strategy 2: GitHub Releases ZIP ─────────────────────────────────────
+    print("   Trying GitHub Releases download...")
+    try:
+        import urllib.request, zipfile, io
+
+        # Fetch latest release metadata
+        api_url  = "https://api.github.com/repos/arduino/arduino-cli/releases/latest"
+        req      = urllib.request.Request(api_url,
+                       headers={"User-Agent": "VibeCoder/6.1"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            release = json.loads(resp.read().decode())
+
+        # Find the Windows 64-bit ZIP asset
+        asset_url = ""
+        for asset in release.get("assets", []):
+            name = asset["name"].lower()
+            if "windows" in name and "64bit" in name and name.endswith(".zip"):
+                asset_url = asset["browser_download_url"]
+                break
+
+        if not asset_url:
+            raise RuntimeError("No Windows 64-bit ZIP found in latest release.")
+
+        print(f"   Downloading {asset_url.split('/')[-1]} ...")
+        with urllib.request.urlopen(asset_url, timeout=120) as resp:
+            zip_data = resp.read()
+
+        # Extract arduino-cli.exe to %LOCALAPPDATA%\Programs\arduino-cli\
+        install_dir = os.path.join(os.environ.get("LOCALAPPDATA", HOME),
+                                   "Programs", "arduino-cli")
+        os.makedirs(install_dir, exist_ok=True)
+
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            for member in zf.namelist():
+                if member.lower().endswith("arduino-cli.exe"):
+                    zf.extract(member, install_dir)
+                    # Flatten: move to install_dir root if in a subdirectory
+                    extracted = os.path.join(install_dir, member)
+                    dest      = os.path.join(install_dir, "arduino-cli.exe")
+                    if extracted != dest:
+                        import shutil
+                        shutil.move(extracted, dest)
+                    break
+
+        exe = os.path.join(install_dir, "arduino-cli.exe")
+        if not os.path.exists(exe):
+            raise RuntimeError("arduino-cli.exe not found after extraction.")
+
+        # Add to PATH for this session
+        os.environ["PATH"] = install_dir + os.pathsep + os.environ.get("PATH","")
+
+        # Persist to user PATH via registry (best-effort)
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE)
+            current_path, _ = winreg.QueryValueEx(key, "PATH")
+            if install_dir not in current_path:
+                winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ,
+                                  current_path + os.pathsep + install_dir)
+            winreg.CloseKey(key)
+            print(f"   ✅ Added {install_dir} to user PATH (restart terminal to take effect).")
+        except Exception:
+            print(f"   ℹ️  Add to PATH manually: {install_dir}")
+
+        # Verify
+        v = subprocess.run([exe, "version"], capture_output=True, text=True)
+        if v.returncode == 0:
+            print(f"   ✅ arduino-cli installed via ZIP: {v.stdout.strip()}")
+            return True
+
+        raise RuntimeError("Installed but verification failed.")
+
+    except Exception as e:
+        print(f"   GitHub download failed: {e}")
+
+    # ── Strategy 3: Manual instructions ─────────────────────────────────────
+    print("\n   ❌ Automatic install failed.")
+    print("   Please install arduino-cli manually:")
+    print()
+    print("   Option A — winget (run in PowerShell):")
+    print("     winget install --id Arduino.ArduinoCLI")
+    print()
+    print("   Option B — Download ZIP:")
+    print("     https://github.com/arduino/arduino-cli/releases/latest")
+    print("     → arduino-cli_*_Windows_64bit.zip")
+    print("     Extract arduino-cli.exe to a folder in your PATH")
+    print()
+    print("   Option C — Chocolatey:")
+    print("     choco install arduino-cli")
+    print()
+    print("   After installing, restart this script.")
+    return False
+
+
+def _refresh_windows_path():
+    """Re-read PATH from registry so newly installed tools are found."""
+    if not IS_WINDOWS:
+        return
+    try:
+        import winreg
+        # System PATH
+        sys_key  = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                  r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")
+        sys_path, _ = winreg.QueryValueEx(sys_key, "PATH")
+        winreg.CloseKey(sys_key)
+        # User PATH
+        usr_key  = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment")
+        try:
+            usr_path, _ = winreg.QueryValueEx(usr_key, "PATH")
+        except FileNotFoundError:
+            usr_path = ""
+        winreg.CloseKey(usr_key)
+
+        combined = sys_path + os.pathsep + usr_path
+        os.environ["PATH"] = combined + os.pathsep + os.environ.get("PATH","")
+    except Exception:
         pass
 
-    print("\n   arduino-cli not found. Auto-installing...")
+
+def ensure_arduino_cli():
+    """Check and auto-install arduino-cli if missing — cross-platform."""
+
+    # ── Already installed? ───────────────────────────────────────────────────
     try:
-        if IS_WINDOWS:
-            cmd = (
-                "iwr -useb https://raw.githubusercontent.com/arduino/arduino-cli/"
-                "master/install.ps1 | iex"
-            )
-            subprocess.run(["powershell", "-Command", cmd], check=True)
-            # Add to PATH
-            local_bin = os.path.join(os.environ.get("LOCALAPPDATA",""), "Programs")
-            os.environ["PATH"] += os.pathsep + local_bin
-        else:
-            cmd = "curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh"
+        r = subprocess.run(["arduino-cli", "version"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            return  # All good
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+
+    # On Windows, refresh PATH first — winget may have installed it already
+    if IS_WINDOWS:
+        _refresh_windows_path()
+        try:
+            r = subprocess.run(["arduino-cli", "version"],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                return
+        except Exception:
+            pass
+
+    print("\n   arduino-cli not found. Auto-installing...")
+
+    # ── Windows ──────────────────────────────────────────────────────────────
+    if IS_WINDOWS:
+        ok = _install_arduino_cli_windows()
+        if not ok:
+            sys.exit(1)
+
+    # ── macOS ─────────────────────────────────────────────────────────────────
+    elif IS_MAC:
+        try:
+            # Prefer Homebrew if available
+            brew = subprocess.run(["brew", "version"], capture_output=True)
+            if brew.returncode == 0:
+                print("   Installing via Homebrew...")
+                subprocess.run(["brew", "install", "arduino-cli"], check=True)
+            else:
+                raise FileNotFoundError("brew not found")
+        except Exception:
+            # Fallback: official install script
+            try:
+                print("   Installing via official script...")
+                cmd = ("curl -fsSL "
+                       "https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh"
+                       " | sh")
+                subprocess.run(["sh", "-c", cmd], check=True)
+                for candidate in [os.path.join(HOME, "bin"), "/usr/local/bin"]:
+                    if os.path.exists(os.path.join(candidate, "arduino-cli")):
+                        os.environ["PATH"] += os.pathsep + candidate
+                        break
+            except Exception as e:
+                print(f"   ❌ Auto-install failed: {e}")
+                print("   Install manually: https://arduino.github.io/arduino-cli/")
+                sys.exit(1)
+
+    # ── Linux ─────────────────────────────────────────────────────────────────
+    else:
+        try:
+            print("   Installing via official script...")
+            cmd = ("curl -fsSL "
+                   "https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh"
+                   " | sh")
             subprocess.run(["sh", "-c", cmd], check=True)
-            # Add local bin to PATH for this session
             for candidate in [
                 os.path.join(HOME, "bin"),
                 os.path.join(os.getcwd(), "bin"),
@@ -1670,21 +1784,25 @@ def ensure_arduino_cli():
                 if os.path.exists(os.path.join(candidate, "arduino-cli")):
                     os.environ["PATH"] += os.pathsep + candidate
                     break
+        except Exception as e:
+            print(f"   ❌ Auto-install failed: {e}")
+            print("   Install manually: https://arduino.github.io/arduino-cli/")
+            sys.exit(1)
 
-        # Verify install succeeded
-        r = subprocess.run(["arduino-cli", "version"], capture_output=True, text=True)
+    # ── Final verification ────────────────────────────────────────────────────
+    try:
+        r = subprocess.run(["arduino-cli", "version"],
+                           capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
-            print(f"   ✅ arduino-cli installed: {r.stdout.strip()}")
-            # Initialize config
+            print(f"   ✅ arduino-cli ready: {r.stdout.strip()}")
             subprocess.run(["arduino-cli", "config", "init"], capture_output=True)
         else:
-            raise RuntimeError("arduino-cli not found after install")
-
-    except Exception as e:
-        print(f"   ❌ Auto-install failed: {e}")
-        print("   Please install manually: https://arduino.github.io/arduino-cli/")
-        print("   Then restart VibeCoder.")
+            raise RuntimeError("version check failed")
+    except Exception:
+        print("   ❌ arduino-cli not found after install.")
+        print("   Please restart your terminal and try again.")
         sys.exit(1)
+
 
 def main(cli_port=None, cli_board=None, cli_baud=None,
          cli_monitor=False, cli_setup=False):
@@ -1699,7 +1817,6 @@ def main(cli_port=None, cli_board=None, cli_baud=None,
     global AI_CFG
     AI_CFG = setup_ai_backend(force=cli_setup)
 
-    # Use CLI board if provided, otherwise auto-detect
     if cli_board and cli_port:
         board = {**cli_board, "port": cli_port}
         if cli_baud: board["upload_speed"] = cli_baud
@@ -1723,7 +1840,6 @@ def main(cli_port=None, cli_board=None, cli_baud=None,
 
     ensure_core(board["fqbn"])
 
-    # --monitor flag: open serial monitor immediately
     if cli_monitor:
         serial_monitor(board.get("port",""))
         return
@@ -1825,26 +1941,25 @@ Examples:
     ensure_arduino_cli()
 
     try:
-        # Board shortname map for --board flag
         board_shortcuts = {
-            "uno":    {"fqbn":"arduino:avr:uno",           "name":"Arduino Uno",        "upload_speed":115200, "upload_method":"avrdude"},
-            "nano":   {"fqbn":"arduino:avr:nano",          "name":"Arduino Nano",       "upload_speed":57600,  "upload_method":"avrdude"},
-            "mega":   {"fqbn":"arduino:avr:mega2560",      "name":"Arduino Mega 2560",  "upload_speed":115200, "upload_method":"avrdude"},
-            "esp32":  {"fqbn":"esp32:esp32:esp32",         "name":"ESP32 DevKit",       "upload_speed":921600, "upload_method":"esptool"},
-            "esp8266":{"fqbn":"esp8266:esp8266:nodemcuv2", "name":"NodeMCU ESP8266",    "upload_speed":921600, "upload_method":"esptool"},
-            "nodemcu":{"fqbn":"esp8266:esp8266:nodemcuv2", "name":"NodeMCU ESP8266",    "upload_speed":921600, "upload_method":"esptool"},
-            "pico":   {"fqbn":"rp2040:rp2040:rpipico",     "name":"Raspberry Pi Pico",  "upload_speed":None,   "upload_method":"uf2"},
-            "picow":  {"fqbn":"rp2040:rp2040:rpipicow",    "name":"Raspberry Pi Pico W","upload_speed":None,   "upload_method":"uf2"},
-            "leonardo":{"fqbn":"arduino:avr:leonardo",     "name":"Arduino Leonardo",   "upload_speed":None,   "upload_method":"arduino-cli"},
-            "due":    {"fqbn":"arduino:sam:arduino_due_x", "name":"Arduino Due",        "upload_speed":None,   "upload_method":"bossac"},
+            "uno":     {"fqbn":"arduino:avr:uno",           "name":"Arduino Uno",         "upload_speed":115200, "upload_method":"avrdude"},
+            "nano":    {"fqbn":"arduino:avr:nano",          "name":"Arduino Nano",        "upload_speed":57600,  "upload_method":"avrdude"},
+            "mega":    {"fqbn":"arduino:avr:mega2560",      "name":"Arduino Mega 2560",   "upload_speed":115200, "upload_method":"avrdude"},
+            "esp32":   {"fqbn":"esp32:esp32:esp32",         "name":"ESP32 DevKit",        "upload_speed":921600, "upload_method":"esptool"},
+            "esp8266": {"fqbn":"esp8266:esp8266:nodemcuv2", "name":"NodeMCU ESP8266",     "upload_speed":921600, "upload_method":"esptool"},
+            "nodemcu": {"fqbn":"esp8266:esp8266:nodemcuv2", "name":"NodeMCU ESP8266",     "upload_speed":921600, "upload_method":"esptool"},
+            "pico":    {"fqbn":"rp2040:rp2040:rpipico",     "name":"Raspberry Pi Pico",   "upload_speed":None,   "upload_method":"uf2"},
+            "picow":   {"fqbn":"rp2040:rp2040:rpipicow",    "name":"Raspberry Pi Pico W", "upload_speed":None,   "upload_method":"uf2"},
+            "leonardo":{"fqbn":"arduino:avr:leonardo",      "name":"Arduino Leonardo",    "upload_speed":None,   "upload_method":"arduino-cli"},
+            "due":     {"fqbn":"arduino:sam:arduino_due_x", "name":"Arduino Due",         "upload_speed":None,   "upload_method":"bossac"},
         }
 
         main(
-            cli_port  = args.port,
-            cli_board = board_shortcuts.get(args.board.lower(), None) if args.board else None,
-            cli_baud  = args.baud,
+            cli_port    = args.port,
+            cli_board   = board_shortcuts.get(args.board.lower(), None) if args.board else None,
+            cli_baud    = args.baud,
             cli_monitor = args.monitor,
-            cli_setup = args.setup,
+            cli_setup   = args.setup,
         )
     except KeyboardInterrupt:
         print("\n   Goodbye! 👋")
